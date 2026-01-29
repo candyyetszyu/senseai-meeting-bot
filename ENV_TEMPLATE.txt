@@ -1,0 +1,56 @@
+# Copy this file to .env and fill in your values
+
+# Lark App Credentials
+# Get these from: https://open.larksuite.com/app
+LARK_APP_ID=your_app_id_here
+LARK_APP_SECRET=your_app_secret_here
+
+# Lark Document Storage Configuration (OPTIONAL)
+# Create ONE templates reference document if you want examples:
+# - Go to Lark and create a document called "Meeting Templates"
+# - Copy the document token from URL: https://your-workspace.larksuite.com/docx/{DOC_TOKEN}
+# - The bot will create meeting notes as new documents automatically
+# - You can manually add template examples to this doc for reference
+#
+# NOTE: This is optional - templates work from config.js even without this doc!
+# Note: Meeting notes are created as standalone documents
+# You can manually organize them into folders in Lark after creation
+# LARK_TEMPLATES_DOC_TOKEN is optional and not currently used
+
+# Lark Bitable for Thoughts Storage (REQUIRED for /thoughts feature)
+# Create a Bitable with a "Thoughts" table:
+# 1. In Lark, click "+" → "Bitable"
+# 2. Name it: "Meeting Bot Data"
+# 3. Create a table named "Thoughts" with these columns:
+#    - Thought (Multi-line Text)
+#    - Author (Text)
+#    - Meeting Context (Text)
+#    - Created Time (Created Time - auto)
+# 4. Copy Bitable App Token from URL: https://xxx.larksuite.com/base/{APP_TOKEN}
+# 5. Copy Table ID from table settings
+# 6. Share Bitable with your bot (give "Can Edit" permission)
+LARK_BITABLE_APP_TOKEN=your_bitable_app_token_here
+LARK_THOUGHTS_TABLE_ID=your_thoughts_table_id_here
+
+# AI Service Configuration
+# Option 1: OpenAI (recommended)
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Option 2: HuggingFace
+HUGGINGFACE_API_TOKEN=your_huggingface_token_here
+
+# AI Provider: "openai" or "huggingface"
+AI_PROVIDER=openai
+
+# Server Configuration (for local development)
+PORT=3000
+WEBHOOK_VERIFICATION_TOKEN=your_verification_token_here
+
+# Document Permissions (Optional)
+# Control who can access created meeting documents
+# Options: 'private' (only creator), 'organization' (anyone in org), 'public' (anyone with link)
+DOCUMENT_DEFAULT_ACCESS=private
+
+# Whether to automatically share documents with the person who sent the transcript
+# Set to 'false' to keep documents only accessible by bot
+DOCUMENT_SHARE_WITH_SENDER=true
