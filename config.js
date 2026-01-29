@@ -11,6 +11,11 @@ module.exports = {
     verificationToken: process.env.WEBHOOK_VERIFICATION_TOKEN,
   },
 
+  // Thoughts Feature Configuration
+  thoughts: {
+    displayLimit: 15, // Number of thoughts to show in /thoughts command
+  },
+
   // AI Configuration
   ai: {
     provider: process.env.AI_PROVIDER || 'openai',

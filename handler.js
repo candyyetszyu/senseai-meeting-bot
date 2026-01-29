@@ -7,6 +7,92 @@ const larkService = require('./lark_service');
 const aiService = require('./ai_service');
 const utils = require('./utils');
 const config = require('./config');
+const fs = require('fs');
+const path = require('path');
+
+// Deduplication: Use file-based lock for webhook processing
+const LOCK_DIR = path.join(__dirname, '.locks');
+const LOCK_TTL_MS = 5000;
+
+// Ensure lock directory exists
+if (!fs.existsSync(LOCK_DIR)) {
+  fs.mkdirSync(LOCK_DIR, { recursive: true });
+}
+
+/**
+ * Try to acquire a lock for a message ID
+ * Returns true if lock acquired (should process), false if already locked (skip)
+ */
+function tryAcquireLock(messageId) {
+  const lockFile = path.join(LOCK_DIR, `${messageId}.lock`);
+  try {
+    // Try to create lock file atomically-ish
+    if (fs.existsSync(lockFile)) {
+      // Check if lock is stale
+      const stats = fs.statSync(lockFile);
+      if (Date.now() - stats.mtimeMs < LOCK_TTL_MS) {
+        return false; // Lock is still valid
+      }
+      // Lock is stale, remove it
+      fs.unlinkSync(lockFile);
+    }
+    // Create lock file
+    fs.writeFileSync(lockFile, String(Date.now()));
+    return true;
+  } catch (e) {
+    return true; // If error, just process
+  }
+}
+
+/**
+ * Release lock for a message ID
+ */
+function releaseLock(messageId) {
+  const lockFile = path.join(LOCK_DIR, `${messageId}.lock`);
+  try {
+    fs.unlinkSync(lockFile);
+  } catch (e) {}
+}
+
+/**
+ * Cleanup stale locks periodically
+ */
+setInterval(() => {
+  try {
+    const files = fs.readdirSync(LOCK_DIR);
+    const now = Date.now();
+    for (const file of files) {
+      if (!file.endsWith('.lock')) continue;
+      const filePath = path.join(LOCK_DIR, file);
+      const stats = fs.statSync(filePath);
+      if (now - stats.mtimeMs > LOCK_TTL_MS * 2) {
+        fs.unlinkSync(filePath);
+      }
+    }
+  } catch (e) {}
+}, 30000);
+
+/**
+ * Replace @mention placeholders with actual names
+ * @param {string} text - Text with @_user_1, @_user_2 placeholders
+ * @param {Array} mentions - Array of mention objects with key and name
+ * @returns {string} - Text with actual @names
+ */
+function replaceMentionPlaceholders(text, mentions) {
+  if (!text || !mentions || mentions.length === 0) {
+    return text;
+  }
+  
+  let result = text;
+  for (const mention of mentions) {
+    if (mention.key && mention.name) {
+      // Replace @_user_1 with @Vincent Cheng
+      result = result.replace(new RegExp(mention.key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), `@${mention.name}`);
+    }
+  }
+  
+  return result;
+}
 
 /**
  * Main webhook handler function
@@ -42,38 +128,49 @@ async function handleWebhook(event) {
  * Handle incoming message events
  */
 async function handleMessageEvent(event) {
-  // Store event globally for access in other handlers
-  currentEvent = event;
-  
   const message = event.event.message;
-  const sender = event.event.sender;
-  
-  // Ignore bot's own messages
-  if (sender.sender_type === 'app') {
+  const messageId = message?.message_id;
+  const chatId = message?.chat_id;
+  const eventId = event.header?.event_id;
+
+  // Deduplication: Use event_id first (more reliable), fallback to messageId
+  const lockKey = eventId || messageId;
+  if (!tryAcquireLock(lockKey)) {
+    console.log(`⏭️  Skipping duplicate webhook: eventId=${eventId}, messageId=${messageId}`);
     return;
   }
 
-  const messageId = message.message_id;
-  const chatId = message.chat_id;
-  
-  // Parse message content
-  let text = '';
   try {
-    const content = JSON.parse(message.content);
-    text = content.text || '';
-  } catch (error) {
-    console.error('Failed to parse message content:', error);
-    return;
-  }
+    // Parse content for command detection
+    let text = '';
+    try {
+      text = JSON.parse(message?.content || '{}').text || '';
+    } catch (e) {}
 
-  // Handle commands
-  const { command, args } = utils.parseCommand(text);
-  
-  if (command) {
-    await handleCommand(command, args, chatId, messageId);
-  } else if (message.parent_id) {
+    const { command } = utils.parseCommand(text);
+    console.log(`📥 Processing: messageId=${messageId}, chatId=${chatId}, command=${command}`);
+
+    // Store event globally for access in other handlers
+    currentEvent = event;
+    
+    const sender = event.event.sender;
+    
+    // Ignore bot's own messages
+    if (sender.sender_type === 'app') {
+      return;
+    }
+
+    // Handle commands
+    const { command: cmd, args } = utils.parseCommand(text);
+    
+    if (cmd) {
+      await handleCommand(cmd, args, chatId, messageId);
+    } else if (message.parent_id) {
     // Handle replies to bot messages (for adding thoughts)
-    await handleReply(message.parent_id, text, chatId, messageId, event);
+    // Replace @mention placeholders with actual names
+    const mentions = message.mentions || [];
+    const textWithNames = replaceMentionPlaceholders(text, mentions);
+    await handleReply(message.parent_id, textWithNames, chatId, messageId, event);
   } else if (message.mentions && message.mentions.length > 0) {
     // Check if bot is mentioned - store as thought
     const content = JSON.parse(message.content);
@@ -192,10 +289,16 @@ async function handleMessageEvent(event) {
         thoughtText = String(thoughtText || '');
       }
       
-      // Remove @mention keys from the text
+      // Replace @mention placeholders with actual names
+      thoughtText = replaceMentionPlaceholders(thoughtText, mentions);
+      
+      // Remove the bot's @mention from the text (keep other mentions)
       for (const mention of mentions) {
-        if (mention.key && thoughtText) {
-          thoughtText = thoughtText.replace(mention.key, '').trim();
+        // Only remove if it's the bot mention (has app_id or empty user_id)
+        if (mention.id && (mention.id.app_id || mention.id.user_id === '')) {
+          if (mention.key && thoughtText) {
+            thoughtText = thoughtText.replace(new RegExp(`@${mention.name}`, 'g'), '').trim();
+          }
         }
       }
       
@@ -224,6 +327,10 @@ async function handleMessageEvent(event) {
   } else {
     // Handle regular messages (potential transcripts)
     await handleTranscript(text, chatId, messageId);
+  }
+  } finally {
+    // Always release the lock using the same key
+    releaseLock(lockKey);
   }
 }
 
@@ -399,13 +506,14 @@ async function handleMeetingSummary(transcript, chatId, messageId) {
     // Generate AI summary
     const notes = await aiService.generateNotes(transcript, 'general');
     
-    // Strip markdown
+    // Strip markdown and normalize whitespace
     const cleanNotes = notes
       .replace(/^###+\s+/gm, '')      // Remove headers
       .replace(/\*\*/g, '')           // Remove bold
       .replace(/\*/g, '')             // Remove italic
       .replace(/`/g, '')              // Remove code
-      .replace(/---/g, '');           // Remove horizontal rules
+      .replace(/---/g, '')            // Remove horizontal rules
+      .replace(/\n{2,}/g, '\n\n');    // 2+ blank lines become 1 line
     
     await larkService.replyMessage(
       messageId,
@@ -423,11 +531,11 @@ ${cleanNotes}`
 }
 
 /**
- * Handle /thoughts command - View latest 5 thoughts
+ * Handle /thoughts command - View latest thoughts
  */
 async function handleGetThoughts(chatId, messageId) {
   try {
-    const thoughts = await larkService.getRecentThoughts(15);
+    const thoughts = await larkService.getRecentThoughts(config.thoughts.displayLimit);
     
     if (thoughts.length === 0) {
       await larkService.replyMessage(
@@ -443,23 +551,38 @@ async function handleGetThoughts(chatId, messageId) {
     const thoughtsList = thoughts.map((record, index) => {
       const fields = record.fields;
       const thought = fields.Thought || '';
-      const author = fields.Author || 'Unknown';
+      
+      // Author field is a Person field (array of user objects)
+      let author = 'Unknown';
+      if (fields['Author']) {
+        if (Array.isArray(fields['Author']) && fields['Author'].length > 0) {
+          // Person field - extract name from user object
+          author = fields['Author'][0].name || fields['Author'][0].en_name || fields['Author'][0].id || 'Unknown';
+        } else if (typeof fields['Author'] === 'string') {
+          // Old records might still have text
+          author = fields['Author'];
+        }
+      }
+      
       const context = fields['Meeting Context'] || '';
       
       // Debug: log the record to see what fields are available
       console.log('Thought record:', JSON.stringify(record, null, 2));
       
-      // Try multiple possible field names for created time
-      const createdTime = fields['Created Time'] || fields['创建时间'] || fields.created_time || record.record_id;
+      // Try multiple possible field names for created time (including "Date")
+      const createdTime = fields['Created Time'] || fields['Date'] || fields['创建时间'] || fields.created_time || null;
       
       // Format timestamp if available
       let timeStr = '';
       if (createdTime && typeof createdTime === 'number') {
         const date = new Date(createdTime);
         timeStr = ` - ${date.toLocaleString()}`;
-      } else if (createdTime) {
-        // If it's not a number, just show it as is
+      } else if (createdTime && typeof createdTime === 'string') {
+        // If it's a string, show it as is
         timeStr = ` - ${createdTime}`;
+      } else {
+        // No timestamp available
+        timeStr = ' - {No timestamp}';
       }
       
       return `${index + 1}. ${author}${context ? ` (${context})` : ''}${timeStr}\n   ${thought}`;
@@ -467,7 +590,7 @@ async function handleGetThoughts(chatId, messageId) {
     
     await larkService.replyMessage(
       messageId,
-      `💭 Latest 15 Thoughts:
+      `💭 Latest ${config.thoughts.displayLimit} Thoughts:
 
 ${thoughtsList}
 
@@ -506,7 +629,19 @@ async function handleSummarizeThoughts(chatId, messageId) {
     // Extract thought texts for AI summarization
     const thoughtTexts = allThoughts.map(record => {
       const fields = record.fields;
-      const author = fields.Author || 'Unknown';
+      
+      // Author field is a Person field (array of user objects)
+      let author = 'Unknown';
+      if (fields['Author']) {
+        if (Array.isArray(fields['Author']) && fields['Author'].length > 0) {
+          // Person field - extract name from user object
+          author = fields['Author'][0].name || fields['Author'][0].en_name || fields['Author'][0].id || 'Unknown';
+        } else if (typeof fields['Author'] === 'string') {
+          // Old records might still have text
+          author = fields['Author'];
+        }
+      }
+      
       const thought = fields.Thought || '';
       const context = fields['Meeting Context'] || '';
       
@@ -530,7 +665,7 @@ ${summary}
 
 ---
 
-💡 Use /thoughts to see latest 15 thoughts`
+💡 Use /thoughts to see latest ${config.thoughts.displayLimit} thoughts`
     );
   } catch (error) {
     console.error('Summarize thoughts error:', error);
@@ -556,7 +691,7 @@ async function handleHelp(chatId, messageId) {
 • /template - List available templates
 • /template <name> - Set note template
 • /template <name> example - See template example
-• /thoughts - View latest 5 thoughts
+• /thoughts - View latest ${config.thoughts.displayLimit} thoughts
 • /summarize - AI summary of ALL thoughts
 • /help - Show this help message
 
@@ -571,7 +706,7 @@ async function handleHelp(chatId, messageId) {
 1. Send just the transcript → Creates meeting doc in Lark wiki
 2. Use /meeting <transcript> → Sends summary directly to chat
 3. Reply to bot message OR @mention the bot to add thoughts
-4. Use /thoughts to see latest 5 with timestamps
+4. Use /thoughts to see latest ${config.thoughts.displayLimit} with timestamps
 
 💡 Tips:
 • /meeting - Quick summary in chat, no document created
@@ -582,87 +717,61 @@ async function handleHelp(chatId, messageId) {
 }
 
 /**
- * Handle replies to bot messages (for adding thoughts)
+ * Unified handler for recording thoughts (used by both replies and @mentions)
  */
-async function handleReply(parentMessageId, text, chatId, messageId, event) {
+async function handleThoughtRecording(text, chatId, messageId, event) {
   try {
     // Get sender info from event
     const sender = event?.event?.sender;
-    const userId = sender?.sender_id?.user_id;
+    const senderId = sender?.sender_id;
     
-    // Get actual user name from Lark API
-    let authorName = 'Anonymous';
-    if (userId) {
-      const userInfo = await larkService.getUserInfo(userId);
-      authorName = userInfo?.name || userId;
-    }
+    // Extract user ID for Created By field
+    const userId = senderId?.open_id || senderId?.user_id;
+    const userIdType = senderId?.open_id ? 'open_id' : 'user_id';
     
-    // Try to get meeting context from parent message
-    // For now, we'll use a generic context
+    console.log('📝 Recording thought with user ID:', userId);
+
+    // Use generic context for thoughts
     const meetingContext = 'General Discussion';
-    
-    // Store thought in Bitable (Created Time is auto-filled by Bitable)
-    await larkService.addThought(text, authorName, meetingContext);
-    
-    // Acknowledge the thought
+
+    // Store thought in Bitable - pass userId for "Created By" field
+    await larkService.addThought(text, null, meetingContext, userId, userIdType);
+
+    // Acknowledge the thought with consistent messaging
     await larkService.replyMessage(
       messageId,
       `💭 Thought recorded!
 
-📋 Use /thoughts to see latest 5
+📋 Use /thoughts to see latest ${config.thoughts.displayLimit}
 🧠 Use /summarize for AI summary of all thoughts`
     );
   } catch (error) {
-    console.error('Handle reply error:', error);
+    console.error('Handle thought recording error:', error);
     await larkService.replyMessage(
       messageId,
-      '💭 Thought noted! (Bitable storage may not be configured)'
+      '💭 Thought noted! (Bitable storage may not be configured properly)'
     );
   }
+}
+
+/**
+ * Handle replies to bot messages (for adding thoughts)
+ */
+async function handleReply(parentMessageId, text, chatId, messageId, event) {
+  await handleThoughtRecording(text, chatId, messageId, event);
 }
 
 /**
  * Handle @mention of bot (store as thought)
  */
 async function handleMention(text, chatId, messageId, event) {
-  try {
-    // Get sender info from event
-    const sender = event?.event?.sender;
-    const userId = sender?.sender_id?.user_id;
-    
-    // Get actual user name from Lark API
-    let authorName = 'Anonymous';
-    if (userId) {
-      const userInfo = await larkService.getUserInfo(userId);
-      authorName = userInfo?.name || userId;
-    }
-    
-    // Use generic context for @mentions
-    const meetingContext = 'General Discussion';
-    
-    // Store thought in Bitable (Created Time is auto-filled by Bitable)
-    await larkService.addThought(text, authorName, meetingContext);
-    
-    // Acknowledge the thought
-    await larkService.replyMessage(
-      messageId,
-      `💭 Thought recorded!
-
-📋 Use /thoughts to see latest 15
-🧠 Use /summarize for AI summary of all thoughts`
-    );
-  } catch (error) {
-    console.error('Handle mention error:', error);
-    await larkService.replyMessage(
-      messageId,
-      '💭 Thought noted! (Bitable storage may not be configured)'
-    );
-  }
+  await handleThoughtRecording(text, chatId, messageId, event);
 }
 
 /**
  * Handle potential meeting transcript
  */
+/*
 async function handleTranscript(text, chatId, messageId) {
   // Validate if this looks like a transcript
   if (!utils.isValidTranscript(text)) {
@@ -679,6 +788,7 @@ async function handleTranscript(text, chatId, messageId) {
 Use /meeting <transcript> to get a summary in chat.`
   );
 }
+*/
 
 module.exports = {
   handleWebhook,

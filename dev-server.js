@@ -27,14 +27,27 @@ app.post('/webhook', async (req, res) => {
   try {
     console.log('Received webhook:', JSON.stringify(req.body, null, 2));
     
-    const result = await handleWebhook(req.body);
+    // For URL verification, wait for result
+    if (req.body.type === 'url_verification') {
+      const result = await handleWebhook(req.body);
+      return res.json(result);
+    }
     
-    res.json(result);
-  } catch (error) {
-    console.error('Webhook error:', error);
-    res.status(500).json({
-      error: error.message,
+    // For all other events, ALWAYS respond immediately with success
+    // This prevents Lark from retrying even if processing fails
+    res.json({ success: true });
+    
+    // Process webhook asynchronously (fire and forget)
+    handleWebhook(req.body).catch(error => {
+      console.error('Async webhook processing error:', error);
     });
+  } catch (error) {
+    console.error('Webhook endpoint error:', error);
+    // Still return 200 to prevent Lark from retrying
+    // Only log the error for debugging
+    if (!res.headersSent) {
+      res.json({ success: true });
+    }
   }
 });
 

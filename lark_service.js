@@ -314,16 +314,55 @@ class LarkService {
    * @param {string} userId - User ID
    * @returns {Promise<object>} - User info
    */
-  async getUserInfo(userId) {
+  async getUserInfo(userId, userIdType = 'open_id') {
     try {
+      // Try direct user info API
       const response = await this.apiRequest(
         'GET',
-        `/contact/v3/users/${userId}`
+        `/contact/v3/users/${userId}?user_id_type=${userIdType}`
       );
-      return response.user || null;
+      
+      // Extract name from response
+      const user = response.user || response;
+      const name = user.name || user.en_name || user.zh_cn_name || null;
+      
+      console.log('✅ Got user info:', { userId, userIdType, name });
+      
+      return { name };
     } catch (error) {
-      console.error('Get user info error:', error);
-      return null;
+      console.log('⚠️  getUserInfo failed:', error.response?.data?.code, error.response?.data?.msg);
+      return { name: null, userId };
+    }
+  }
+
+  /**
+   * Get chat member info (uses im: permission instead of contact: permission)
+   * @param {string} chatId - Chat ID
+   * @param {string} userId - User's open_id
+   * @returns {Promise<object>} - User info with name
+   */
+  async getChatMemberInfo(chatId, userId) {
+    try {
+      // Get chat members list - uses im:chat permission which bot already has
+      const response = await this.apiRequest(
+        'GET',
+        `/im/v1/chats/${chatId}/members?member_id_type=open_id&page_size=200`
+      );
+      
+      const members = response.items || [];
+      const member = members.find(m => m.member_id === userId);
+      
+      if (member) {
+        const name = member.name || null;
+        console.log('✅ Got name from chat members:', { userId, name });
+        return { name };
+      }
+      
+      console.log('⚠️  User not found in chat members');
+      return { name: null };
+    } catch (error) {
+      console.log('⚠️  getChatMemberInfo failed:', error.response?.data?.msg || error.message);
+      return { name: null };
     }
   }
 
@@ -334,7 +373,7 @@ class LarkService {
    * @param {string} meetingContext - Meeting context/title
    * @returns {Promise<object>} - Created record
    */
-  async addThought(thought, author, meetingContext = '') {
+  async addThought(thought, author, meetingContext = '', userId = null, userIdType = 'open_id') {
     try {
       if (!config.lark.bitableAppToken || !config.lark.thoughtsTableId) {
         console.warn('Bitable not configured - thoughts feature disabled');
@@ -343,19 +382,27 @@ class LarkService {
 
       const fields = {
         'Thought': thought,
-        'Author': author,
         'Meeting Context': meetingContext,
       };
+      
+      // Set Author field with user ID (it's a Person field, type 11)
+      if (userId) {
+        fields['Author'] = [{
+          id: userId,
+          // Don't specify type - let Bitable handle it
+        }];
+      }
 
-      // Note: "Created Time" field is auto-filled by Bitable and cannot be set manually
-
-      return await this.apiRequest(
+      const result = await this.apiRequest(
         'POST',
         `/bitable/v1/apps/${config.lark.bitableAppToken}/tables/${config.lark.thoughtsTableId}/records`,
         { fields }
       );
+      
+      console.log('✅ Thought added to Bitable with Author:', { userId, context: meetingContext });
+      return result;
     } catch (error) {
-      console.error('Add thought error:', error);
+      console.error('❌ Add thought error:', error);
       throw error;
     }
   }
@@ -380,11 +427,17 @@ class LarkService {
 
       const items = response.items || [];
       
-      // Sort by Created Time descending (most recent first)
-      // Created Time is a timestamp in milliseconds
+      console.log(`📊 Retrieved ${items.length} thoughts from Bitable`);
+      if (items.length > 0) {
+        console.log('📋 Sample record fields:', Object.keys(items[0].fields));
+        console.log('📋 Sample record values:', JSON.stringify(items[0].fields, null, 2));
+      }
+      
+      // Sort by timestamp descending (most recent first)
+      // Try multiple possible field names (including "Date")
       const sorted = items.sort((a, b) => {
-        const timeA = a.fields['Created Time'] || 0;
-        const timeB = b.fields['Created Time'] || 0;
+        const timeA = a.fields['Created Time'] || a.fields['Date'] || a.fields['创建时间'] || a.created_time || 0;
+        const timeB = b.fields['Created Time'] || b.fields['Date'] || b.fields['创建时间'] || b.created_time || 0;
         return timeB - timeA; // Descending order (newest first)
       });
 
