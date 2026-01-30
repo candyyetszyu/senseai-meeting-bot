@@ -6,6 +6,7 @@
 const express = require('express');
 const config = require('./config');
 const { handleWebhook } = require('./handler');
+const scheduler = require('./services/scheduler');
 
 const app = express();
 const port = config.server.port;

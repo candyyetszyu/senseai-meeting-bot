@@ -1,16 +1,17 @@
 # 🤖 Lark Meeting Bot
 
-A serverless Lark bot that automatically converts meeting transcripts into structured, AI-generated notes using OpenAI or HuggingFace. No external database or Bitable costs required - everything runs on Lark's free document features!
+A serverless Lark bot that automatically converts meeting transcripts into structured, AI-generated notes. Features team thoughts tracking, intelligent summarization, and scheduled meeting management.
 
 ## ✨ Features
 
 - **📝 Transcript Processing**: Send a transcript → AI generates structured notes → Creates editable Lark documents
 - **🎯 Template Selection**: 5 detailed templates with examples (Daily Standup, Brainstorming, Kickoff, Retrospective, General)
-- **💭 Team Thoughts System**: 
-  - Reply to bot messages to record thoughts in Bitable
+- **💭 Team Thoughts System**:
+  - Reply to bot messages or @mention the bot to record thoughts
   - `/thoughts` - View latest 5 thoughts instantly
   - `/summarize` - AI generates insights from ALL thoughts
-- **⚡ Serverless**: Deploy to Vercel or Cloudflare Workers
+- **📅 Meeting Management**: Schedule recurring meetings with automatic reminders and notes generation
+- **⚡ Serverless**: Deploy to Vercel or run as a traditional server
 - **🧠 Dual AI Support**: Use OpenAI GPT-4 or HuggingFace models
 - **💰 Cost-Effective**: Minimal costs - only Bitable for thoughts (optional)
 
@@ -18,9 +19,9 @@ A serverless Lark bot that automatically converts meeting transcripts into struc
 
 - **Meeting Notes**: Standalone Lark Documents (editable by you!)
 - **Thoughts Storage**: Lark Bitable (structured database)
+- **Scheduled Meetings**: Local storage with cron-based reminders
 - **AI**: OpenAI API (GPT-4) or HuggingFace Inference
-- **Runtime**: Vercel Serverless Functions / Cloudflare Workers
-- **Total Code**: ~600 lines of clean, maintainable code
+- **Runtime**: Vercel Serverless Functions / Node.js Server
 
 ## 🚀 Quick Start
 
@@ -64,14 +65,7 @@ Create a Bitable to store team thoughts:
 4. **Grant bot access:**
    - Share Bitable with bot ("Can Edit" permission)
 
-**See [BITABLE_SETUP.md](BITABLE_SETUP.md) for detailed instructions!**
-
-### 4. Set Up Templates Reference (Optional)
-
-Templates already work from `config.js` - no setup needed!
-- Templates have built-in examples
-- Use `/template <name> example` to see them
-- Optional: Create your own reference doc
+**See [documentation/BITABLE_SETUP.md](documentation/BITABLE_SETUP.md) for detailed instructions!**
 
 ### 4. Install Dependencies
 
@@ -146,11 +140,13 @@ Update webhook URL in Lark Console to: `https://your-app.vercel.app/webhook`
 
 | Command | Description |
 |---------|-------------|
-| `/meetings` | List recent meetings |
-| `/meeting <id>` | Get specific meeting details |
+| `/meetings` | List scheduled meetings |
+| `/meeting add <title> <time>` | Schedule a new meeting |
+| `/meeting delete <id>` | Delete a scheduled meeting |
 | `/template <name>` | Set note template for next meeting |
 | `/template` | List available templates |
 | `/thoughts` | View team thoughts summary |
+| `/summarize` | AI summary of all thoughts |
 | `/help` | Show help message |
 
 ### Available Templates
@@ -161,9 +157,22 @@ Update webhook URL in Lark Console to: `https://your-app.vercel.app/webhook`
 - **retrospective**: What went well, what to improve, action items
 - **general**: Standard meeting notes with key points and action items
 
-**💡 Tip:** Templates work automatically from `config.js` - no setup needed!
+**💡 Tip:** Templates work automatically from `config/templates.js` - no setup needed!
 
-See [TEMPLATES.md](TEMPLATES.md) for detailed template guide and examples.
+### Adding Thoughts
+
+**Method 1: Reply to Bot**
+```
+Bot: ✅ Meeting Notes Generated! [link]
+You: [Reply] "We should also add dark mode"
+Bot: 💭 Thought recorded!
+```
+
+**Method 2: @Mention the Bot**
+```
+You: @Meeting Bot This is a great idea for the project
+Bot: 💭 Thought recorded!
+```
 
 ### Example Workflow
 
@@ -180,28 +189,53 @@ See [TEMPLATES.md](TEMPLATES.md) for detailed template guide and examples.
 
 3. **Bot shares** document link in the chat
 
-4. **Team members reply** to add thoughts:
-   ```
-   "We should also consider mobile responsiveness"
-   ```
+4. **Team members reply** or @mention the bot to add thoughts
 
-5. **Use `/thoughts`** to get AI summary of all team thoughts
+5. **Use `/thoughts`** to see latest 5 thoughts or `/summarize` for AI insights
 
 ## 🛠️ Project Structure
 
 ```
 lark-meeting-bot/
-├── handler.js           # Webhook handler + main logic
-├── lark_service.js      # Lark API (messaging, documents)
-├── ai_service.js        # OpenAI + HuggingFace integration
-├── utils.js             # Helper functions
-├── config.js            # Environment configuration
-├── dev-server.js        # Local development server
+├── handler.js              # Webhook handler + main logic
+├── lark_service.js         # Lark API (messaging, documents)
+├── ai_service.js           # OpenAI + HuggingFace integration
+├── utils.js                # Helper functions
+├── config.js               # Environment configuration
+├── dev-server.js           # Local development server
 ├── api/
-│   └── webhook.js       # Vercel serverless function
+│   └── webhook.js          # Vercel serverless function
+├── handlers/               # Message and command handlers
+│   ├── index.js
+│   ├── commandHandler.js
+│   ├── mentionHandler.js
+│   ├── messageRouter.js
+│   └── webhook.js
+├── services/               # Business logic services
+│   ├── larkBitable.js      # Bitable operations for thoughts
+│   ├── larkMessaging.js    # Lark message sending
+│   ├── lockManager.js      # Distributed locking for concurrency
+│   ├── meetingStorage.js   # Meeting data persistence
+│   ├── scheduler.js        # Cron-based meeting scheduler
+│   └── thoughtRecorder.js  # Thoughts recording logic
+├── config/                 # Configuration files
+│   ├── index.js
+│   ├── ai.js               # AI configuration
+│   ├── app.js              # App configuration
+│   ├── lark.js             # Lark API configuration
+│   └── templates.js        # Meeting note templates
+├── utils/                  # Utility modules
+│   ├── index.js
+│   ├── helpers.js
+│   ├── markdownStripper.js
+│   └── textProcessor.js
+├── documentation/          # Setup and feature guides
+│   ├── BITABLE_SETUP.md
+│   ├── SETUP_GUIDE.md
+│   └── THOUGHTS_FEATURE.md
 ├── package.json
-├── vercel.json          # Vercel deployment config
-├── .gitignore
+├── vercel.json             # Vercel deployment config
+├── .env.example
 └── README.md
 ```
 
@@ -223,13 +257,15 @@ HUGGINGFACE_API_TOKEN=hf_...
 
 ### Custom Templates
 
-Edit `config.js` to add or modify templates:
+Edit `config/templates.js` to add or modify templates:
 
 ```javascript
 templates: {
   'custom-template': {
     name: 'Custom Template',
     prompt: 'Your custom prompt here...',
+    exampleTranscript: '...',
+    exampleOutput: '...',
   },
 }
 ```
@@ -271,6 +307,12 @@ templates: {
 2. Check bot has bitable permissions
 3. Ensure table field names match configuration
 
+### Scheduled meetings not triggering
+
+1. Ensure the server is running (not serverless)
+2. Check cron scheduler is active
+3. Verify meeting time configuration
+
 ## 🚢 Deployment Options
 
 ### Vercel (Recommended)
@@ -281,24 +323,7 @@ vercel --prod
 
 Set environment variables in Vercel dashboard.
 
-### Cloudflare Workers
-
-Create `wrangler.toml`:
-
-```toml
-name = "lark-meeting-bot"
-type = "javascript"
-account_id = "your-account-id"
-workers_dev = true
-route = ""
-zone_id = ""
-```
-
-Deploy:
-
-```bash
-wrangler publish
-```
+**Note:** Scheduled meetings require a persistent server. For serverless deployment, use an external scheduler (e.g., GitHub Actions, cron-job.org) to trigger meeting reminders.
 
 ### Traditional Server
 
@@ -307,6 +332,18 @@ Run with PM2:
 ```bash
 npm install -g pm2
 pm2 start dev-server.js --name lark-meeting-bot
+```
+
+### Docker
+
+```dockerfile
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+EXPOSE 3000
+CMD ["npm", "start"]
 ```
 
 ## 🤝 Contributing
@@ -334,6 +371,7 @@ MIT License - feel free to use this project however you'd like!
 - Encourage team to reply with thoughts for collaborative notes
 - Review and edit generated documents as needed
 - Set up proper error monitoring in production
+- Use `/summarize` weekly to track team sentiment and priorities
 
 ---
 

@@ -5,9 +5,11 @@
 
 const larkMessaging = require('./services/larkMessaging');
 const larkBitable = require('./services/larkBitable');
+const meetingStorage = require('./services/meetingStorage');
 
-// Initialize Bitable service with messaging service
+// Initialize services with messaging service
 larkBitable.setMessaging(larkMessaging);
+meetingStorage.setMessaging(larkMessaging);
 
 // Re-export all lark service methods for backward compatibility
 module.exports = {
@@ -19,8 +21,13 @@ module.exports = {
   getMessageReplies: larkMessaging.getMessageReplies.bind(larkMessaging),
   createCardMessage: larkMessaging.createCardMessage.bind(larkMessaging),
 
-  // Bitable methods
+  // Bitable methods (thoughts)
   addThought: larkBitable.addThought.bind(larkBitable),
   getRecentThoughts: larkBitable.getRecentThoughts.bind(larkBitable),
   getAllThoughts: larkBitable.getAllThoughts.bind(larkBitable),
+
+  // Meeting storage methods
+  addMeetingRecord: meetingStorage.addMeetingRecord.bind(meetingStorage),
+  getRecentMeetings: meetingStorage.getRecentMeetings.bind(meetingStorage),
+  searchMeetings: meetingStorage.searchMeetings.bind(meetingStorage),
 };

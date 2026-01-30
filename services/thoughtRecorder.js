@@ -7,6 +7,29 @@ const larkMessaging = require('./larkMessaging');
 const config = require('../config');
 
 /**
+ * Classify meeting context based on text content
+ * @param {string} text - Thought text
+ * @returns {string} - Meeting context classification
+ */
+function classifyMeetingContext(text) {
+  // Check for daily report keywords (case-insensitive variations)
+  const dailyReportPatterns = [
+    /daily\s+report/i,
+    /Daily\s+report/i,
+    /Daily\s+Report/i,
+    /daily\s+Report/i,
+  ];
+
+  const isDailyReport = dailyReportPatterns.some(pattern => pattern.test(text));
+
+  if (isDailyReport) {
+    return '(Daily Report)';
+  }
+
+  return 'General Discussion';
+}
+
+/**
  * Unified handler for recording thoughts
  * @param {string} text - Thought text
  * @param {string} chatId - Chat ID
@@ -23,13 +46,16 @@ async function recordThought(text, chatId, messageId, event) {
 
     console.log('📝 Recording thought with user ID:', userId);
 
-    const meetingContext = 'General Discussion';
+    // Classify the meeting context based on text content
+    const meetingContext = classifyMeetingContext(text);
+
+    console.log('📋 Meeting context classified as:', meetingContext);
 
     await larkBitable.addThought(text, null, meetingContext, userId, userIdType);
 
     await larkMessaging.replyMessage(
       messageId,
-      `💭 Thought recorded!
+      `💭 Thought recorded!${meetingContext !== 'General Discussion' ? `\n📌 Context: ${meetingContext}` : ''}
 
 📋 Use /thoughts to see latest ${config.thoughts.displayLimit}
 🧠 Use /summarize for AI summary of all thoughts`

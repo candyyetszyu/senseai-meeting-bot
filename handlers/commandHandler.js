@@ -7,6 +7,7 @@ const aiService = require('../ai_service');
 const config = require('../config');
 const { stripMarkdown, extractAuthor } = require('../utils/markdownStripper');
 const utils = require('../utils');
+const scheduler = require('../services/scheduler');
 
 /**
  * Handle /meetings command
@@ -83,18 +84,36 @@ Example: /template daily-standup
 }
 
 /**
- * Handle /record command - Summarize transcript
+ * Handle /record command - Summarize transcript and save to storage
  */
 async function handleMeetingSummary(transcript, chatId, messageId) {
   try {
     const notes = await aiService.generateNotes(transcript, 'general');
     const cleanNotes = stripMarkdown(notes);
 
+    // Try to save to meeting storage table
+    try {
+      await larkService.addMeetingRecord(
+        transcript,
+        cleanNotes,
+        `Meeting - ${new Date().toLocaleDateString()}`,
+        '' // Attendees field - can be extracted later if needed
+      );
+      console.log('✅ Meeting record saved to storage');
+    } catch (storageError) {
+      console.warn('⚠️ Failed to save meeting to storage:', storageError.message);
+      // Continue even if storage fails
+    }
+
     await larkService.replyMessage(
       messageId,
       `📋 Meeting Summary:
 
-${cleanNotes}`
+${cleanNotes}
+
+---
+
+✅ Meeting saved to storage`
     );
   } catch (error) {
     console.error('Meeting summary error:', error);
@@ -161,27 +180,29 @@ ${thoughtsList}
 
 /**
  * Handle /summarize command
+ * Summarizes thoughts from previous day to current date
  */
 async function handleSummarizeThoughts(chatId, messageId) {
   try {
     await larkService.replyMessage(
       messageId,
-      '🤔 Analyzing all thoughts and generating summary...'
+      '🤔 Analyzing thoughts from yesterday to today...'
     );
 
-    const allThoughts = await larkService.getAllThoughts(100);
+    // Get thoughts since yesterday (same logic as auto-summary)
+    const thoughts = await scheduler.getThoughtsSinceYesterday();
 
-    if (allThoughts.length === 0) {
+    if (thoughts.length === 0) {
       await larkService.replyMessage(
         messageId,
-        `💭 No thoughts recorded yet.
+        `💭 No thoughts recorded since yesterday.
 
 💡 Reply to bot messages to add thoughts!`
       );
       return;
     }
 
-    const thoughtTexts = allThoughts.map(record => {
+    const thoughtTexts = thoughts.map(record => {
       const fields = record.fields;
       const author = extractAuthor(fields['Author']);
       const thought = fields.Thought || '';
@@ -195,7 +216,9 @@ async function handleSummarizeThoughts(chatId, messageId) {
 
     await larkService.replyMessage(
       messageId,
-      `🧠 AI Summary of All Thoughts (${allThoughts.length} total):
+      `🧠 AI Summary (Yesterday to Today):
+
+📊 Analyzed ${thoughts.length} thought(s)
 
 ${summary}
 
@@ -242,6 +265,92 @@ ${cleanResponse}`
 }
 
 /**
+ * Handle /autosummary command
+ */
+async function handleAutoSummary(args, chatId, messageId) {
+  try {
+    if (args.length === 0) {
+      const status = scheduler.getStatus();
+      const statusText = status.enabled 
+        ? `✅ Auto-summary is ENABLED\n📍 Target chat: ${status.chatId}\n⏰ Runs daily at 8:00 AM HKT (Hong Kong Time)`
+        : `❌ Auto-summary is DISABLED`;
+
+      await larkService.replyMessage(
+        messageId,
+        `🤖 Auto-Summary Status:
+
+${statusText}
+
+💡 Usage:
+• /autosummary on - Enable auto-summary in this chat
+• /autosummary off - Disable auto-summary
+• /autosummary status - Check current status`
+      );
+      return;
+    }
+
+    const subcommand = args[0].toLowerCase();
+
+    switch (subcommand) {
+      case 'on':
+      case 'enable':
+        scheduler.enableAutoSummary(chatId);
+        await larkService.replyMessage(
+          messageId,
+          `✅ Auto-summary ENABLED
+
+📍 This chat will receive daily summaries at 8:00 AM HKT
+📊 Summarizes thoughts from previous day to current date
+🔧 Use /autosummary off to disable`
+        );
+        break;
+
+      case 'off':
+      case 'disable':
+        scheduler.disableAutoSummary();
+        await larkService.replyMessage(
+          messageId,
+          `❌ Auto-summary DISABLED
+
+💡 Use /autosummary on to re-enable`
+        );
+        break;
+
+      case 'status':
+        const status = scheduler.getStatus();
+        const statusText = status.enabled 
+          ? `✅ ENABLED\n📍 Chat: ${status.chatId}\n⏰ Daily at 8:00 AM HKT (Hong Kong Time)`
+          : `❌ DISABLED`;
+
+        await larkService.replyMessage(
+          messageId,
+          `🤖 Auto-Summary Status:
+
+${statusText}`
+        );
+        break;
+
+      default:
+        await larkService.replyMessage(
+          messageId,
+          `❌ Unknown subcommand: ${subcommand}
+
+💡 Usage:
+• /autosummary on - Enable
+• /autosummary off - Disable  
+• /autosummary status - Check status`
+        );
+    }
+  } catch (error) {
+    console.error('Auto-summary command error:', error);
+    await larkService.replyMessage(
+      messageId,
+      `❌ Failed to update auto-summary: ${error.message}`
+    );
+  }
+}
+
+/**
  * Handle /help command
  */
 async function handleHelp(chatId, messageId) {
@@ -249,15 +358,19 @@ async function handleHelp(chatId, messageId) {
 
 📝 Meeting Notes:
 • Reply to bot messages OR @mention the bot to add your thoughts
+• Mention "daily report" in your thought → auto-tagged as (Daily Report)
 
 📋 Commands:
-• /record <transcript> - Summarize meeting and send to group
+• /record <transcript> - Summarize meeting and save to storage
 • /meetings - List recent meetings
 • /template - List available templates
 • /template <name> - Set note template
 • /template <name> example - See template example
 • /thoughts - View latest ${config.thoughts.displayLimit} thoughts
-• /summarize - AI summary of ALL thoughts
+• /summarize - AI summary from yesterday to today
+• /autosummary on - Enable daily 8AM (HKT) auto-summary
+• /autosummary off - Disable auto-summary
+• /autosummary status - Check auto-summary status
 • /general <question> - Ask AI any question
 • /help - Show this help message
 
@@ -269,14 +382,17 @@ async function handleHelp(chatId, messageId) {
 • general - Standard meeting notes
 
 📖 Example Usage:
-1. Use /record <transcript> → Sends summary directly to chat
-2. Reply to bot message OR @mention the bot to add thoughts
-3. Use /thoughts to see latest ${config.thoughts.displayLimit} with timestamps
-4. Use /general <question> → Ask AI any question
+1. /record <transcript> → Generates summary and saves to storage
+2. Reply to bot message → Add your thoughts
+3. /thoughts → See latest ${config.thoughts.displayLimit} thoughts
+4. /summarize → AI summary from yesterday to today
+5. /autosummary on → Enable daily summaries at 8AM HKT
+6. /general <question> → Ask AI anything
 
 💡 Tips:
-• /record - Quick summary in chat
-• /general - Ask AI anything`;
+• /autosummary on - Get daily summaries at 8AM Hong Kong Time
+• Thoughts with "daily report" → auto-tagged as (Daily Report)
+• /record saves both transcript and notes to Bitable`;
 
   await larkService.replyMessage(messageId, helpText);
 }
@@ -321,6 +437,10 @@ async function handleCommand(command, args, chatId, messageId) {
         await handleSummarizeThoughts(chatId, messageId);
         break;
 
+      case '/autosummary':
+        await handleAutoSummary(args, chatId, messageId);
+        break;
+
       case '/help':
         await handleHelp(chatId, messageId);
         break;
@@ -360,6 +480,7 @@ module.exports = {
   handleMeetingSummary,
   handleGetThoughts,
   handleSummarizeThoughts,
+  handleAutoSummary,
   handleGeneral,
   handleHelp,
 };
