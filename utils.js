@@ -1,7 +1,7 @@
 /**
- * Utility functions for the Lark Meeting Bot
+ * Utility functions for SenseAI Assistant
  * Aggregates all utility modules for backward compatibility
  */
 
-const utils = require('./utils');
+const utils = require('./utils/index');
 module.exports = utils;

@@ -3,6 +3,8 @@
  * Run with: npm run dev
  */
 
+require('dotenv').config();
+
 const express = require('express');
 const config = require('./config');
 const { handleWebhook } = require('./handler');
@@ -18,7 +20,7 @@ app.use(express.json());
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
-    service: 'Lark Meeting Bot',
+    service: 'SenseAI Assistant',
     timestamp: new Date().toISOString(),
   });
 });
@@ -54,7 +56,7 @@ app.post('/webhook', async (req, res) => {
 
 // Start server
 app.listen(port, () => {
-  console.log(`🚀 Lark Meeting Bot is running on http://localhost:${port}`);
+  console.log(`🚀 SenseAI Assistant is running on http://localhost:${port}`);
   console.log(`📡 Webhook URL: http://localhost:${port}/webhook`);
   console.log('\n💡 For local testing, use ngrok or similar to expose this server:');
   console.log(`   ngrok http ${port}`);

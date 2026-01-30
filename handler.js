@@ -1,5 +1,5 @@
 /**
- * Main webhook handler for Lark Meeting Bot
+ * Main webhook handler for SenseAI Assistant
  * Uses modular handlers for specific functionality
  */
 

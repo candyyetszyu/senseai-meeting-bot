@@ -34,7 +34,7 @@ class AIService {
   async generateNotes(transcript, templateName = 'general') {
     const template = config.templates[templateName] || config.templates.general;
     
-    const systemPrompt = `You are an expert meeting notes assistant. Your task is to create clear, concise, and well-structured meeting notes from transcripts.`;
+    const systemPrompt = `You are SenseAI Assistant, an expert meeting notes assistant. Your task is to create clear, concise, and well-structured meeting notes from transcripts.`;
     
     const userPrompt = `${template.prompt}\n\nTranscript:\n${transcript}`;
 
@@ -49,6 +49,27 @@ class AIService {
     } catch (error) {
       console.error('AI generation error:', error);
       throw new Error(`Failed to generate notes: ${error.message}`);
+    }
+  }
+
+  /**
+   * Generate response using configured AI provider
+   * @param {string} systemPrompt - System prompt
+   * @param {string} userPrompt - User prompt
+   * @returns {Promise<string>} - Generated response
+   */
+  async generate(systemPrompt, userPrompt) {
+    try {
+      if (this.provider === 'openai') {
+        return await this.generateWithOpenAI(systemPrompt, userPrompt);
+      } else if (this.provider === 'huggingface') {
+        return await this.generateWithHuggingFace(systemPrompt, userPrompt);
+      } else {
+        throw new Error(`Unsupported AI provider: ${this.provider}`);
+      }
+    } catch (error) {
+      console.error('AI generation error:', error);
+      throw new Error(`Failed to generate response: ${error.message}`);
     }
   }
 
@@ -109,18 +130,10 @@ class AIService {
     const prompt = `Extract all action items from these meeting notes. Return only the action items as a numbered list, one per line.\n\nNotes:\n${notes}`;
 
     try {
-      let result;
-      if (this.provider === 'openai') {
-        result = await this.generateWithOpenAI(
-          'You are a helpful assistant that extracts action items.',
-          prompt
-        );
-      } else {
-        result = await this.generateWithHuggingFace(
-          'You are a helpful assistant that extracts action items.',
-          prompt
-        );
-      }
+      const result = await this.generate(
+        'You are SenseAI Assistant, a helpful AI that extracts action items.',
+        prompt
+      );
 
       // Parse action items from the response
       const items = result
@@ -150,17 +163,10 @@ class AIService {
     const prompt = `Summarize these team thoughts and comments into key points:\n\n${thoughtsText}`;
 
     try {
-      if (this.provider === 'openai') {
-        return await this.generateWithOpenAI(
-          'You are a helpful assistant that summarizes team discussions.',
-          prompt
-        );
-      } else {
-        return await this.generateWithHuggingFace(
-          'You are a helpful assistant that summarizes team discussions.',
-          prompt
-        );
-      }
+      return await this.generate(
+        'You are SenseAI Assistant, a helpful AI that summarizes team discussions.',
+        prompt
+      );
     } catch (error) {
       console.error('Thought summarization error:', error);
       return thoughtsText; // Return raw thoughts if summarization fails

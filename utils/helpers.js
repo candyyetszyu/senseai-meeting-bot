@@ -1,5 +1,5 @@
 /**
- * Helper utilities for the Lark Meeting Bot
+ * Helper utilities for SenseAI Assistant
  */
 
 /**

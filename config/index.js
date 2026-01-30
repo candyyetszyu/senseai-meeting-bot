@@ -3,6 +3,9 @@
  * Combines all config modules into a single export
  */
 
+// Load environment variables first
+require('dotenv').config();
+
 const lark = require('./lark');
 const ai = require('./ai');
 const app = require('./app');

@@ -3,6 +3,6 @@
  * Aggregates all config modules for backward compatibility
  */
 
-const config = require('./config');
+const config = require('./config/index');
 
 module.exports = config;

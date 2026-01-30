@@ -2,27 +2,6 @@
 
 A serverless Lark bot that automatically converts meeting transcripts into structured, AI-generated notes. Features team thoughts tracking, intelligent summarization, and scheduled meeting management.
 
-## ✨ Features
-
-- **📝 Transcript Processing**: Send a transcript → AI generates structured notes → Creates editable Lark documents
-- **🎯 Template Selection**: 5 detailed templates with examples (Daily Standup, Brainstorming, Kickoff, Retrospective, General)
-- **💭 Team Thoughts System**:
-  - Reply to bot messages or @mention the bot to record thoughts
-  - `/thoughts` - View latest 5 thoughts instantly
-  - `/summarize` - AI generates insights from ALL thoughts
-- **📅 Meeting Management**: Schedule recurring meetings with automatic reminders and notes generation
-- **⚡ Serverless**: Deploy to Vercel or run as a traditional server
-- **🧠 Dual AI Support**: Use OpenAI GPT-4 or HuggingFace models
-- **💰 Cost-Effective**: Minimal costs - only Bitable for thoughts (optional)
-
-## 🏗️ Architecture
-
-- **Meeting Notes**: Standalone Lark Documents (editable by you!)
-- **Thoughts Storage**: Lark Bitable (structured database)
-- **Scheduled Meetings**: Local storage with cron-based reminders
-- **AI**: OpenAI API (GPT-4) or HuggingFace Inference
-- **Runtime**: Vercel Serverless Functions / Node.js Server
-
 ## 🚀 Quick Start
 
 ### 1. Prerequisites
@@ -133,65 +112,6 @@ vercel --prod
 ```
 
 Update webhook URL in Lark Console to: `https://your-app.vercel.app/webhook`
-
-## 📖 Usage
-
-### Commands
-
-| Command | Description |
-|---------|-------------|
-| `/meetings` | List scheduled meetings |
-| `/meeting add <title> <time>` | Schedule a new meeting |
-| `/meeting delete <id>` | Delete a scheduled meeting |
-| `/template <name>` | Set note template for next meeting |
-| `/template` | List available templates |
-| `/thoughts` | View team thoughts summary |
-| `/summarize` | AI summary of all thoughts |
-| `/help` | Show help message |
-
-### Available Templates
-
-- **daily-standup**: Extract what each person did, plans to do, and blockers
-- **brainstorming**: Organize and highlight promising ideas
-- **kickoff**: Extract goals, timeline, roles, and deliverables
-- **retrospective**: What went well, what to improve, action items
-- **general**: Standard meeting notes with key points and action items
-
-**💡 Tip:** Templates work automatically from `config/templates.js` - no setup needed!
-
-### Adding Thoughts
-
-**Method 1: Reply to Bot**
-```
-Bot: ✅ Meeting Notes Generated! [link]
-You: [Reply] "We should also add dark mode"
-Bot: 💭 Thought recorded!
-```
-
-**Method 2: @Mention the Bot**
-```
-You: @Meeting Bot This is a great idea for the project
-Bot: 💭 Thought recorded!
-```
-
-### Example Workflow
-
-1. **Send a transcript** (50+ characters):
-   ```
-   Team: Let's discuss the new feature.
-   Alice: I think we should focus on user experience first.
-   Bob: Agreed. We also need to consider performance.
-   Alice: I'll create mockups by Friday.
-   Bob: I'll handle the backend API.
-   ```
-
-2. **Bot processes** and creates a Lark document with structured notes
-
-3. **Bot shares** document link in the chat
-
-4. **Team members reply** or @mention the bot to add thoughts
-
-5. **Use `/thoughts`** to see latest 5 thoughts or `/summarize` for AI insights
 
 ## 🛠️ Project Structure
 
@@ -372,7 +292,3 @@ MIT License - feel free to use this project however you'd like!
 - Review and edit generated documents as needed
 - Set up proper error monitoring in production
 - Use `/summarize` weekly to track team sentiment and priorities
-
----
-
-Made with ❤️ for better meeting notes

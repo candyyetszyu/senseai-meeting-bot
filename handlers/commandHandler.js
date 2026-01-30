@@ -13,10 +13,63 @@ const scheduler = require('../services/scheduler');
  * Handle /meetings command
  */
 async function handleListMeetings(chatId, messageId) {
-  await larkService.replyMessage(
-    messageId,
-    '📋 Meeting listing is not available in this version.\n\n💡 Use /record <transcript> to summarize meetings.'
-  );
+  try {
+    const meetings = await larkService.getRecentMeetings(10);
+
+    if (meetings.length === 0) {
+      await larkService.replyMessage(
+        messageId,
+        `📋 No meetings recorded yet.
+
+💡 Use /record <transcript> to record and summarize meetings.`
+      );
+      return;
+    }
+
+    const meetingsList = meetings.map((record, index) => {
+      const fields = record.fields;
+      const title = fields['Meeting Title'] || 'Untitled Meeting';
+      const notes = fields['Meeting Notes'] || '';
+      const transcript = fields['Transcript'] || '';
+      const attendees = fields['Attendees'] || '';
+      
+      // Get creation time
+      const createdTime = fields['Created Time'] || fields['Date'] || fields['创建时间'] || record.created_time || null;
+      let timeStr = '';
+      
+      if (createdTime && typeof createdTime === 'number') {
+        const date = new Date(createdTime);
+        timeStr = ` - ${date.toLocaleDateString()}`;
+      } else if (createdTime && typeof createdTime === 'string') {
+        timeStr = ` - ${createdTime}`;
+      }
+
+      // Preview of notes (first 120 chars to leave room for attendees)
+      const notesPreview = utils.truncate(notes, 120);
+      const attendeesInfo = attendees ? `\n👥 ${attendees}` : '';
+      
+      return `${index + 1}. 📋 ${title}${timeStr}${attendeesInfo}
+📝 ${notesPreview}
+📊 Transcript: ${transcript.length} chars`;
+    }).join('\n\n');
+
+    await larkService.replyMessage(
+      messageId,
+      `📋 Recent Meetings (${meetings.length}):
+
+${meetingsList}
+
+---
+
+💡 Use /record <transcript> to add new meetings`
+    );
+  } catch (error) {
+    console.error('List meetings error:', error);
+    await larkService.replyMessage(
+      messageId, 
+      '❌ Failed to retrieve meetings. Make sure meeting storage is configured.'
+    );
+  }
 }
 
 /**
@@ -84,6 +137,94 @@ Example: /template daily-standup
 }
 
 /**
+ * Extract attendees from transcript
+ * @param {string} transcript - Meeting transcript
+ * @param {string} notes - Generated meeting notes
+ * @returns {string} - Comma-separated list of attendees
+ */
+function extractAttendees(transcript, notes) {
+  const attendeeSet = new Set();
+  
+  // Method 1: Look for "Name:" patterns in transcript
+  const speakerMatches = transcript.match(/^([A-Z][a-zA-Z\s]+):/gm);
+  if (speakerMatches) {
+    speakerMatches.forEach(match => {
+      const name = match.replace(':', '').trim();
+      if (name.length > 1 && name.length < 30) {
+        attendeeSet.add(name);
+      }
+    });
+  }
+  
+  // Method 2: Look for "Attendees:" section in notes
+  const attendeesMatch = notes.match(/Attendees?[:\s]+([^\n\r]+)/i);
+  if (attendeesMatch) {
+    const attendeesList = attendeesMatch[1];
+    // Split by common delimiters and clean up
+    const names = attendeesList.split(/[,;]|\sand\s/).map(name => 
+      name.trim().replace(/^[-•]\s*/, '')
+    );
+    names.forEach(name => {
+      if (name.length > 1 && name.length < 30) {
+        attendeeSet.add(name);
+      }
+    });
+  }
+  
+  // Method 3: Look for common patterns like "Alice, Bob, Charlie"
+  const namePatterns = [
+    /(?:with|including|participants?[:\s]+)([A-Z][a-zA-Z]+(?:,\s*[A-Z][a-zA-Z]+)*)/gi,
+    /([A-Z][a-zA-Z]+)(?:,\s*([A-Z][a-zA-Z]+))*(?:\s+(?:and|&)\s+([A-Z][a-zA-Z]+))?/g
+  ];
+  
+  namePatterns.forEach(pattern => {
+    const matches = transcript.match(pattern);
+    if (matches) {
+      matches.forEach(match => {
+        const names = match.split(/[,&]|\sand\s/).map(n => n.trim());
+        names.forEach(name => {
+          // Clean up common prefixes
+          name = name.replace(/^(?:with|including|participants?)[:\s]*/i, '').trim();
+          if (name.length > 1 && name.length < 30 && /^[A-Z][a-zA-Z\s]*$/.test(name)) {
+            attendeeSet.add(name);
+          }
+        });
+      });
+    }
+  });
+  
+  return Array.from(attendeeSet).join(', ');
+}
+
+/**
+ * Extract meeting title from transcript
+ * @param {string} transcript - Meeting transcript
+ * @returns {string} - Meeting title
+ */
+function extractMeetingTitle(transcript) {
+  // Look for common meeting title patterns
+  const titlePatterns = [
+    /^(.+?)\s*-\s*\d{1,2}\/\d{1,2}\/\d{4}/m, // "Title - Date" format
+    /^(?:meeting|call|session)[:\s]+(.+)/im,   // "Meeting: Title" format
+    /^(.+?)\s+meeting/im,                      // "Title Meeting" format
+    /^([^\n\r:]{10,60})/m                      // First line if reasonable length
+  ];
+  
+  for (const pattern of titlePatterns) {
+    const match = transcript.match(pattern);
+    if (match && match[1]) {
+      const title = match[1].trim();
+      if (title.length > 5 && title.length < 100) {
+        return title;
+      }
+    }
+  }
+  
+  // Fallback to date-based title
+  return `Meeting - ${new Date().toLocaleDateString()}`;
+}
+
+/**
  * Handle /record command - Summarize transcript and save to storage
  */
 async function handleMeetingSummary(transcript, chatId, messageId) {
@@ -91,19 +232,27 @@ async function handleMeetingSummary(transcript, chatId, messageId) {
     const notes = await aiService.generateNotes(transcript, 'general');
     const cleanNotes = stripMarkdown(notes);
 
+    // Extract attendees and meeting title
+    const attendees = extractAttendees(transcript, cleanNotes);
+    const meetingTitle = extractMeetingTitle(transcript);
+
     // Try to save to meeting storage table
     try {
       await larkService.addMeetingRecord(
         transcript,
         cleanNotes,
-        `Meeting - ${new Date().toLocaleDateString()}`,
-        '' // Attendees field - can be extracted later if needed
+        meetingTitle,
+        attendees
       );
       console.log('✅ Meeting record saved to storage');
+      console.log('📋 Extracted attendees:', attendees);
+      console.log('📋 Meeting title:', meetingTitle);
     } catch (storageError) {
       console.warn('⚠️ Failed to save meeting to storage:', storageError.message);
       // Continue even if storage fails
     }
+
+    const attendeesInfo = attendees ? `\n👥 Attendees: ${attendees}` : '';
 
     await larkService.replyMessage(
       messageId,
@@ -113,7 +262,7 @@ ${cleanNotes}
 
 ---
 
-✅ Meeting saved to storage`
+✅ Meeting saved to storage${attendeesInfo}`
     );
   } catch (error) {
     console.error('Meeting summary error:', error);
@@ -242,8 +391,8 @@ async function handleGeneral(question, chatId, messageId) {
   try {
     await larkService.replyMessage(messageId, '🤔 Thinking...');
 
-    const response = await aiService.generateWithOpenAI(
-      'You are a helpful AI assistant. Provide clear, concise answers.',
+    const response = await aiService.generate(
+      'You are SenseAI Assistant, a helpful AI assistant. Provide clear, concise answers.',
       question
     );
 
@@ -354,13 +503,14 @@ ${statusText}`
  * Handle /help command
  */
 async function handleHelp(chatId, messageId) {
-  const helpText = `🤖 Lark Meeting Bot - Commands
+  const helpText = `🤖 SenseAI Assistant - Commands
 
-📝 Meeting Notes:
+📝 Thoughts:
 • Reply to bot messages OR @mention the bot to add your thoughts
 • Mention "daily report" in your thought → auto-tagged as (Daily Report)
 
 📋 Commands:
+• /general <question> - Ask AI any question
 • /record <transcript> - Summarize meeting and save to storage
 • /meetings - List recent meetings
 • /template - List available templates
@@ -371,7 +521,6 @@ async function handleHelp(chatId, messageId) {
 • /autosummary on - Enable daily 8AM (HKT) auto-summary
 • /autosummary off - Disable auto-summary
 • /autosummary status - Check auto-summary status
-• /general <question> - Ask AI any question
 • /help - Show this help message
 
 🎯 Available Templates:
@@ -380,14 +529,6 @@ async function handleHelp(chatId, messageId) {
 • kickoff - Project kickoff format
 • retrospective - Sprint retro format
 • general - Standard meeting notes
-
-📖 Example Usage:
-1. /record <transcript> → Generates summary and saves to storage
-2. Reply to bot message → Add your thoughts
-3. /thoughts → See latest ${config.thoughts.displayLimit} thoughts
-4. /summarize → AI summary from yesterday to today
-5. /autosummary on → Enable daily summaries at 8AM HKT
-6. /general <question> → Ask AI anything
 
 💡 Tips:
 • /autosummary on - Get daily summaries at 8AM Hong Kong Time
