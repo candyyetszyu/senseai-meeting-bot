@@ -23,7 +23,7 @@ function classifyMeetingContext(text) {
   const isDailyReport = dailyReportPatterns.some(pattern => pattern.test(text));
 
   if (isDailyReport) {
-    return '(Daily Report)';
+    return 'Daily Report';
   }
 
   return 'General Discussion';
@@ -52,20 +52,8 @@ async function recordThought(text, chatId, messageId, event) {
     console.log('📋 Meeting context classified as:', meetingContext);
 
     await larkBitable.addThought(text, null, meetingContext, userId, userIdType);
-
-    await larkMessaging.replyMessage(
-      messageId,
-      `💭 Thought recorded!${meetingContext !== 'General Discussion' ? `\n📌 Context: ${meetingContext}` : ''}
-
-📋 Use /thoughts to see latest ${config.thoughts.displayLimit}
-🧠 Use /summarize for AI summary of all thoughts`
-    );
   } catch (error) {
     console.error('Handle thought recording error:', error);
-    await larkMessaging.replyMessage(
-      messageId,
-      '💭 Thought noted! (Bitable storage may not be configured properly)'
-    );
   }
 }
 

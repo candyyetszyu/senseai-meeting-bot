@@ -1,0 +1,15 @@
+[Unit]
+Description=Ngrok Tunnel for Lark Webhook
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+ExecStart=/usr/local/bin/ngrok http 3000
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
