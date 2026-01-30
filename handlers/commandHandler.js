@@ -1,0 +1,365 @@
+/**
+ * Command Handler - Handles all /command processing
+ */
+
+const larkService = require('../lark_service');
+const aiService = require('../ai_service');
+const config = require('../config');
+const { stripMarkdown, extractAuthor } = require('../utils/markdownStripper');
+const utils = require('../utils');
+
+/**
+ * Handle /meetings command
+ */
+async function handleListMeetings(chatId, messageId) {
+  await larkService.replyMessage(
+    messageId,
+    '📋 Meeting listing is not available in this version.\n\n💡 Use /record <transcript> to summarize meetings.'
+  );
+}
+
+/**
+ * Handle /template command
+ */
+async function handleSetTemplate(templateName, chatId, messageId, showExample = false) {
+  const template = config.templates[templateName.toLowerCase()];
+
+  if (template) {
+    if (showExample && template.exampleTranscript) {
+      const exampleMessage = `📋 ${template.name} - Example
+
+📝 Example Input:
+${utils.truncate(template.exampleTranscript, 500)}
+
+✅ Example Output:
+${utils.truncate(template.exampleOutput, 500)}
+
+Usage: Send /template ${templateName} then send your transcript.`;
+
+      await larkService.replyMessage(messageId, exampleMessage);
+    } else {
+      await larkService.replyMessage(
+        messageId,
+        `✅ Template set to: ${template.name}
+
+📝 Next transcript will use this template.
+
+💡 Tip: Send /template ${templateName} example to see an example.`
+      );
+    }
+  } else {
+    await larkService.replyMessage(
+      messageId,
+      `❌ Template "${templateName}" not found.
+
+Use /template to see available templates.`
+    );
+  }
+}
+
+/**
+ * Handle /template without args - List templates
+ */
+async function handleListTemplates(chatId, messageId) {
+  const templateList = Object.entries(config.templates)
+    .map(([key, template]) => {
+      let info = `📋 ${key} - ${template.name}`;
+      if (template.exampleTranscript) {
+        info += ` (has example)`;
+      }
+      return info;
+    })
+    .join('\n');
+
+  const message = `📚 Available Templates:
+
+${templateList}
+
+Usage: /template <name>
+Example: /template daily-standup
+
+💡 Send /template <name> example to see an example`;
+  await larkService.replyMessage(messageId, message);
+}
+
+/**
+ * Handle /record command - Summarize transcript
+ */
+async function handleMeetingSummary(transcript, chatId, messageId) {
+  try {
+    const notes = await aiService.generateNotes(transcript, 'general');
+    const cleanNotes = stripMarkdown(notes);
+
+    await larkService.replyMessage(
+      messageId,
+      `📋 Meeting Summary:
+
+${cleanNotes}`
+    );
+  } catch (error) {
+    console.error('Meeting summary error:', error);
+    await larkService.replyMessage(
+      messageId,
+      `❌ Failed to generate summary: ${error.message}`
+    );
+  }
+}
+
+/**
+ * Handle /thoughts command
+ */
+async function handleGetThoughts(chatId, messageId) {
+  try {
+    const thoughts = await larkService.getRecentThoughts(config.thoughts.displayLimit);
+
+    if (thoughts.length === 0) {
+      await larkService.replyMessage(
+        messageId,
+        `💭 No thoughts recorded yet.
+
+💡 Reply to bot messages to add thoughts!`
+      );
+      return;
+    }
+
+    const thoughtsList = thoughts.map((record, index) => {
+      const fields = record.fields;
+      const thought = fields.Thought || '';
+      const author = extractAuthor(fields['Author']);
+      const context = fields['Meeting Context'] || '';
+
+      const createdTime = fields['Created Time'] || fields['Date'] || fields['创建时间'] || fields.created_time || null;
+      let timeStr = '';
+
+      if (createdTime && typeof createdTime === 'number') {
+        const date = new Date(createdTime);
+        timeStr = ` - ${date.toLocaleString()}`;
+      } else if (createdTime && typeof createdTime === 'string') {
+        timeStr = ` - ${createdTime}`;
+      } else {
+        timeStr = ' - {No timestamp}';
+      }
+
+      return `${index + 1}. ${author}${context ? ` (${context})` : ''}${timeStr}\n   ${thought}`;
+    }).join('\n\n');
+
+    await larkService.replyMessage(
+      messageId,
+      `💭 Latest ${config.thoughts.displayLimit} Thoughts:
+
+${thoughtsList}
+
+---
+
+💡 Use /summarize to get AI summary of ALL thoughts`
+    );
+  } catch (error) {
+    console.error('Get thoughts error:', error);
+    await larkService.replyMessage(messageId, '❌ Failed to retrieve thoughts. Make sure Bitable is configured.');
+  }
+}
+
+/**
+ * Handle /summarize command
+ */
+async function handleSummarizeThoughts(chatId, messageId) {
+  try {
+    await larkService.replyMessage(
+      messageId,
+      '🤔 Analyzing all thoughts and generating summary...'
+    );
+
+    const allThoughts = await larkService.getAllThoughts(100);
+
+    if (allThoughts.length === 0) {
+      await larkService.replyMessage(
+        messageId,
+        `💭 No thoughts recorded yet.
+
+💡 Reply to bot messages to add thoughts!`
+      );
+      return;
+    }
+
+    const thoughtTexts = allThoughts.map(record => {
+      const fields = record.fields;
+      const author = extractAuthor(fields['Author']);
+      const thought = fields.Thought || '';
+      const context = fields['Meeting Context'] || '';
+
+      return `${author}${context ? ` (${context})` : ''}: ${thought}`;
+    });
+
+    const rawSummary = await aiService.summarizeThoughts(thoughtTexts);
+    const summary = stripMarkdown(rawSummary);
+
+    await larkService.replyMessage(
+      messageId,
+      `🧠 AI Summary of All Thoughts (${allThoughts.length} total):
+
+${summary}
+
+---
+
+💡 Use /thoughts to see latest ${config.thoughts.displayLimit} thoughts`
+    );
+  } catch (error) {
+    console.error('Summarize thoughts error:', error);
+    await larkService.replyMessage(
+      messageId,
+      '❌ Failed to generate summary. Make sure Bitable is configured.'
+    );
+  }
+}
+
+/**
+ * Handle /general command
+ */
+async function handleGeneral(question, chatId, messageId) {
+  try {
+    await larkService.replyMessage(messageId, '🤔 Thinking...');
+
+    const response = await aiService.generateWithOpenAI(
+      'You are a helpful AI assistant. Provide clear, concise answers.',
+      question
+    );
+
+    const cleanResponse = stripMarkdown(response);
+
+    await larkService.replyMessage(
+      messageId,
+      `💡 Answer:
+
+${cleanResponse}`
+    );
+  } catch (error) {
+    console.error('General AI error:', error);
+    await larkService.replyMessage(
+      messageId,
+      `❌ Failed to get answer: ${error.message}`
+    );
+  }
+}
+
+/**
+ * Handle /help command
+ */
+async function handleHelp(chatId, messageId) {
+  const helpText = `🤖 Lark Meeting Bot - Commands
+
+📝 Meeting Notes:
+• Reply to bot messages OR @mention the bot to add your thoughts
+
+📋 Commands:
+• /record <transcript> - Summarize meeting and send to group
+• /meetings - List recent meetings
+• /template - List available templates
+• /template <name> - Set note template
+• /template <name> example - See template example
+• /thoughts - View latest ${config.thoughts.displayLimit} thoughts
+• /summarize - AI summary of ALL thoughts
+• /general <question> - Ask AI any question
+• /help - Show this help message
+
+🎯 Available Templates:
+• daily-standup - Team standup format
+• brainstorming - Ideation & features
+• kickoff - Project kickoff format
+• retrospective - Sprint retro format
+• general - Standard meeting notes
+
+📖 Example Usage:
+1. Use /record <transcript> → Sends summary directly to chat
+2. Reply to bot message OR @mention the bot to add thoughts
+3. Use /thoughts to see latest ${config.thoughts.displayLimit} with timestamps
+4. Use /general <question> → Ask AI any question
+
+💡 Tips:
+• /record - Quick summary in chat
+• /general - Ask AI anything`;
+
+  await larkService.replyMessage(messageId, helpText);
+}
+
+/**
+ * Main command dispatcher
+ */
+async function handleCommand(command, args, chatId, messageId) {
+  try {
+    switch (command) {
+      case '/meetings':
+        await handleListMeetings(chatId, messageId);
+        break;
+
+      case '/record':
+        const transcript = args.join(' ');
+        if (transcript.trim().length > 0) {
+          await handleMeetingSummary(transcript, chatId, messageId);
+        } else {
+          await larkService.replyMessage(
+            messageId,
+            'Please provide a meeting transcript. Usage: /record <transcript>'
+          );
+        }
+        break;
+
+      case '/template':
+        if (args.length > 0) {
+          const showExample = args.length > 1 && args[1].toLowerCase() === 'example';
+          await handleSetTemplate(args[0], chatId, messageId, showExample);
+        } else {
+          await handleListTemplates(chatId, messageId);
+        }
+        break;
+
+      case '/thoughts':
+        await handleGetThoughts(chatId, messageId);
+        break;
+
+      case '/summarize':
+      case '/summary':
+        await handleSummarizeThoughts(chatId, messageId);
+        break;
+
+      case '/help':
+        await handleHelp(chatId, messageId);
+        break;
+
+      case '/general':
+        const question = args.join(' ');
+        if (question.trim().length > 0) {
+          await handleGeneral(question, chatId, messageId);
+        } else {
+          await larkService.replyMessage(
+            messageId,
+            'Please provide a question. Usage: /general <question>'
+          );
+        }
+        break;
+
+      default:
+        await larkService.replyMessage(
+          messageId,
+          `Unknown command: ${command}. Type /help for available commands.`
+        );
+    }
+  } catch (error) {
+    console.error('Command handler error:', error);
+    await larkService.replyMessage(
+      messageId,
+      `Error processing command: ${error.message}`
+    );
+  }
+}
+
+module.exports = {
+  handleCommand,
+  handleListMeetings,
+  handleSetTemplate,
+  handleListTemplates,
+  handleMeetingSummary,
+  handleGetThoughts,
+  handleSummarizeThoughts,
+  handleGeneral,
+  handleHelp,
+};

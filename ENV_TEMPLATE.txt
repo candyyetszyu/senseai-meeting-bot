@@ -5,18 +5,6 @@
 LARK_APP_ID=your_app_id_here
 LARK_APP_SECRET=your_app_secret_here
 
-# Lark Document Storage Configuration (OPTIONAL)
-# Create ONE templates reference document if you want examples:
-# - Go to Lark and create a document called "Meeting Templates"
-# - Copy the document token from URL: https://your-workspace.larksuite.com/docx/{DOC_TOKEN}
-# - The bot will create meeting notes as new documents automatically
-# - You can manually add template examples to this doc for reference
-#
-# NOTE: This is optional - templates work from config.js even without this doc!
-# Note: Meeting notes are created as standalone documents
-# You can manually organize them into folders in Lark after creation
-# LARK_TEMPLATES_DOC_TOKEN is optional and not currently used
-
 # Lark Bitable for Thoughts Storage (REQUIRED for /thoughts feature)
 # Create a Bitable with a "Thoughts" table:
 # 1. In Lark, click "+" → "Bitable"
