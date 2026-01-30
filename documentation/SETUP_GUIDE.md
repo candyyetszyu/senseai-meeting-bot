@@ -198,13 +198,40 @@ Copy the HTTPS URL (e.g., `https://abc123.ngrok.io`)
 
 ## Step 6: Configure Webhook in Lark (10 minutes)
 
-### 6.1 Set Webhook URL
+### 6.1 Generate Webhook Verification Token (Optional)
+
+**Note:** Lark Developer Console requires a verification token, but your code doesn't validate it. You can use **any value** you want.
+
+```bash
+# Option 1: Generate a random secure token
+openssl rand -hex 32
+
+# Option 2: Use a simple value (works fine)
+# Just use: my-webhook-token-123
+```
+
+### 6.2 Add Token to .env
+
+Add the token to your `.env` file (any value works):
+
+```env
+# Simple value works fine:
+WEBHOOK_VERIFICATION_TOKEN=my-webhook-token-123
+
+# Or use a generated token:
+# WEBHOOK_VERIFICATION_TOKEN=a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6
+```
+
+### 6.3 Set Webhook URL in Lark
 
 1. Go to your app in Lark Developer Console
 2. Click "Event Subscriptions"
 3. Enable event subscriptions
-4. Set Request URL: `https://abc123.ngrok.io/webhook`
-5. Lark will send a verification request (should auto-succeed)
+4. Set:
+   - **Request URL:** `https://abc123.ngrok.io/webhook`
+   - **Verification Token:** Paste the **SAME** token from your `.env` file (can be any value, just needs to match)
+5. Click **Save**
+6. Lark will send a verification request - if the token matches, verification will succeed automatically
 
 ### 6.2 Subscribe to Events
 

@@ -10,5 +10,7 @@ module.exports = {
   // Server Configuration
   server: {
     port: process.env.PORT || 3000,
+    // In Docker/production, use 0.0.0.0 so the app is reachable from outside the container
+    host: process.env.HOST || '0.0.0.0',
   },
 };

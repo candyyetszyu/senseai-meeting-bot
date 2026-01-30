@@ -1,0 +1,41 @@
+services:
+  lark-meeting-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lark-meeting-bot
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOST=0.0.0.0
+      # Lark App Credentials
+      - LARK_APP_ID=${LARK_APP_ID}
+      - LARK_APP_SECRET=${LARK_APP_SECRET}
+      # Bitable Configuration
+      - LARK_BITABLE_APP_TOKEN=${LARK_BITABLE_APP_TOKEN}
+      - LARK_THOUGHTS_TABLE_ID=${LARK_THOUGHTS_TABLE_ID}
+      # AI Configuration
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - HUGGINGFACE_API_TOKEN=${HUGGINGFACE_API_TOKEN:-}
+      - AI_PROVIDER=${AI_PROVIDER:-openai}
+      # Server Configuration (optional - Lark requires it but code doesn't validate it)
+      - WEBHOOK_VERIFICATION_TOKEN=${WEBHOOK_VERIFICATION_TOKEN:-}
+      # Optional: document permissions and sharing
+      - DOCUMENT_DEFAULT_ACCESS=${DOCUMENT_DEFAULT_ACCESS:-private}
+      - DOCUMENT_SHARE_WITH_SENDER=${DOCUMENT_SHARE_WITH_SENDER:-true}
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

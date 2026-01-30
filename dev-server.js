@@ -12,6 +12,7 @@ const scheduler = require('./services/scheduler');
 
 const app = express();
 const port = config.server.port;
+const host = config.server.host || '0.0.0.0';
 
 // Parse JSON bodies
 app.use(express.json());
@@ -54,10 +55,12 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// Start server
-app.listen(port, () => {
-  console.log(`🚀 SenseAI Assistant is running on http://localhost:${port}`);
-  console.log(`📡 Webhook URL: http://localhost:${port}/webhook`);
-  console.log('\n💡 For local testing, use ngrok or similar to expose this server:');
-  console.log(`   ngrok http ${port}`);
+// Start server (bind to host for Docker/production when HOST=0.0.0.0)
+app.listen(port, host, () => {
+  console.log(`🚀 SenseAI Assistant is running on http://${host}:${port}`);
+  console.log(`📡 Webhook URL: http://${host}:${port}/webhook`);
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('\n💡 For local testing, use ngrok or similar to expose this server:');
+    console.log(`   ngrok http ${port}`);
+  }
 });

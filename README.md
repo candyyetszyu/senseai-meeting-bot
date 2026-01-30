@@ -254,17 +254,14 @@ npm install -g pm2
 pm2 start dev-server.js --name lark-meeting-bot
 ```
 
-### Docker
+### Docker (VM / production)
 
-```dockerfile
-FROM node:18-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm install
-COPY . .
-EXPOSE 3000
-CMD ["npm", "start"]
-```
+To run on your own VM in production with Docker:
+
+1. Copy `ENV_TEMPLATE.txt` to `.env` and fill in your values.
+2. Build and run: `docker compose up -d`.
+
+See **[DEPLOYMENT.md](documentation/DEPLOYMENT.md)** for the full guide: VM setup, production mode, reverse proxy (HTTPS), and Lark webhook configuration.
 
 ## 🤝 Contributing
 

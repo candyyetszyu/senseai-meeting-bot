@@ -5,7 +5,12 @@
   "main": "handler.js",
   "scripts": {
     "dev": "node dev-server.js",
-    "start": "node dev-server.js"
+    "start": "node dev-server.js",
+    "docker:build": "docker build -t lark-meeting-bot .",
+    "docker:run": "docker run -p 3000:3000 --env-file .env lark-meeting-bot",
+    "docker:compose:up": "docker compose up -d",
+    "docker:compose:down": "docker compose down",
+    "docker:compose:logs": "docker compose logs -f"
   },
   "keywords": [
     "lark",
