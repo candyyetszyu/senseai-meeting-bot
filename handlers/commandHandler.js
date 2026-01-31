@@ -419,9 +419,9 @@ ${cleanResponse}`
 async function handleAutoSummary(args, chatId, messageId) {
   try {
     if (args.length === 0) {
-      const status = scheduler.getStatus();
+      const status = scheduler.getStatus(chatId);
       const statusText = status.enabled 
-        ? `✅ Auto-summary is ENABLED\n📍 Target chat: ${status.chatId}\n⏰ Runs daily at 8:00 AM HKT (Hong Kong Time)`
+        ? `✅ Auto-summary is ENABLED\n📍 This chat receives daily summaries\n⏰ Runs daily at 8:00 AM HKT (Hong Kong Time)`
         : `❌ Auto-summary is DISABLED`;
 
       await larkService.replyMessage(
@@ -456,7 +456,7 @@ ${statusText}
 
       case 'off':
       case 'disable':
-        scheduler.disableAutoSummary();
+        scheduler.disableAutoSummary(chatId);
         await larkService.replyMessage(
           messageId,
           `❌ Auto-summary DISABLED
@@ -466,9 +466,9 @@ ${statusText}
         break;
 
       case 'status':
-        const status = scheduler.getStatus();
+        const status = scheduler.getStatus(chatId);
         const statusText = status.enabled 
-          ? `✅ ENABLED\n📍 Chat: ${status.chatId}\n⏰ Daily at 8:00 AM HKT (Hong Kong Time)`
+          ? `✅ ENABLED\n📍 This chat receives summaries\n⏰ Daily at 8:00 AM HKT (Hong Kong Time)`
           : `❌ DISABLED`;
 
         await larkService.replyMessage(

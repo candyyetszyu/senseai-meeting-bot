@@ -15,8 +15,8 @@ const SETTINGS_FILE = path.join(__dirname, '../.scheduler-settings.json');
 
 class SchedulerService {
   constructor() {
-    this.autoSummaryEnabled = false;
-    this.targetChatId = null;
+    // Map of chatId -> auto-summary settings
+    this.chatSettings = new Map(); // { chatId: { enabled: boolean, enabledAt: timestamp } }
     this.task = null;
     this.loadSettings();
   }
@@ -28,10 +28,22 @@ class SchedulerService {
     try {
       if (fs.existsSync(SETTINGS_FILE)) {
         const data = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
-        this.autoSummaryEnabled = data.autoSummaryEnabled || false;
-        this.targetChatId = data.targetChatId || null;
         
-        if (this.autoSummaryEnabled && this.targetChatId) {
+        // Convert old format to new format if needed
+        if (data.autoSummaryEnabled !== undefined && data.targetChatId) {
+          this.chatSettings.set(data.targetChatId, {
+            enabled: data.autoSummaryEnabled,
+            enabledAt: data.enabledAt || Date.now()
+          });
+        } else if (data.chatSettings) {
+          // Load new format
+          Object.entries(data.chatSettings).forEach(([chatId, settings]) => {
+            this.chatSettings.set(chatId, settings);
+          });
+        }
+        
+        // Start scheduler if any chat has auto-summary enabled
+        if (this.hasEnabledChats()) {
           this.startAutoSummary();
           console.log('✅ Auto-summary scheduler loaded and started');
         }
@@ -46,10 +58,12 @@ class SchedulerService {
    */
   saveSettings() {
     try {
-      const data = {
-        autoSummaryEnabled: this.autoSummaryEnabled,
-        targetChatId: this.targetChatId,
-      };
+      const chatSettingsObj = {};
+      this.chatSettings.forEach((settings, chatId) => {
+        chatSettingsObj[chatId] = settings;
+      });
+      
+      const data = { chatSettings: chatSettingsObj };
       fs.writeFileSync(SETTINGS_FILE, JSON.stringify(data, null, 2));
       console.log('✅ Scheduler settings saved');
     } catch (error) {
@@ -58,24 +72,67 @@ class SchedulerService {
   }
 
   /**
-   * Enable auto-summary
+   * Check if any chat has auto-summary enabled
+   */
+  hasEnabledChats() {
+    for (const settings of this.chatSettings.values()) {
+      if (settings.enabled) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Get all enabled chat IDs
+   */
+  getEnabledChatIds() {
+    const enabledChats = [];
+    this.chatSettings.forEach((settings, chatId) => {
+      if (settings.enabled) {
+        enabledChats.push(chatId);
+      }
+    });
+    return enabledChats;
+  }
+
+  /**
+   * Enable auto-summary for a specific chat
    * @param {string} chatId - Target chat ID to send summaries
    */
   enableAutoSummary(chatId) {
-    this.autoSummaryEnabled = true;
-    this.targetChatId = chatId;
+    this.chatSettings.set(chatId, {
+      enabled: true,
+      enabledAt: Date.now()
+    });
     this.saveSettings();
     this.startAutoSummary();
   }
 
   /**
-   * Disable auto-summary
+   * Disable auto-summary for a specific chat
+   * @param {string} chatId - Chat ID to disable
    */
-  disableAutoSummary() {
-    this.autoSummaryEnabled = false;
-    this.targetChatId = null;
-    this.saveSettings();
-    this.stopAutoSummary();
+  disableAutoSummary(chatId) {
+    if (this.chatSettings.has(chatId)) {
+      this.chatSettings.set(chatId, {
+        enabled: false,
+        enabledAt: this.chatSettings.get(chatId).enabledAt
+      });
+      this.saveSettings();
+    }
+    
+    // Stop scheduler if no chats are enabled
+    if (!this.hasEnabledChats()) {
+      this.stopAutoSummary();
+    }
+  }
+
+  /**
+   * Check if auto-summary is enabled for a specific chat
+   * @param {string} chatId - Chat ID to check
+   */
+  isAutoSummaryEnabled(chatId) {
+    const settings = this.chatSettings.get(chatId);
+    return settings ? settings.enabled : false;
   }
 
   /**
@@ -145,47 +202,41 @@ class SchedulerService {
    */
   async runAutoSummary() {
     try {
-      if (!this.autoSummaryEnabled || !this.targetChatId) {
-        console.log('⚠️ Auto-summary not enabled or no target chat');
+      const enabledChatIds = this.getEnabledChatIds();
+      
+      if (enabledChatIds.length === 0) {
+        console.log('⚠️ Auto-summary not enabled for any chat');
         return;
       }
 
       const thoughts = await this.getThoughtsSinceYesterday();
 
-      if (thoughts.length === 0) {
-        console.log('💭 No thoughts to summarize since yesterday');
-        await larkMessaging.sendMessage(
-          this.targetChatId,
-          '💭 Daily Summary (8:00 AM HKT)\n\nNo thoughts recorded since yesterday.'
-        );
-        return;
-      }
+      // Generate summary once (shared across all enabled chats)
+      let summaryText = '';
+      let hasThoughts = thoughts.length > 0;
 
-      // Generate summary
-      const thoughtTexts = thoughts.map(record => {
-        const fields = record.fields;
-        const author = extractAuthor(fields['Author']);
-        const thought = fields.Thought || '';
-        const context = fields['Meeting Context'] || '';
+      if (hasThoughts) {
+        const thoughtTexts = thoughts.map(record => {
+          const fields = record.fields;
+          const author = extractAuthor(fields['Author']);
+          const thought = fields.Thought || '';
+          const context = fields['Meeting Context'] || '';
 
-        return `${author}${context ? ` (${context})` : ''}: ${thought}`;
-      });
+          return `${author}${context ? ` (${context})` : ''}: ${thought}`;
+        });
 
-      const rawSummary = await aiService.summarizeThoughts(thoughtTexts);
-      const summary = stripMarkdown(rawSummary);
+        const rawSummary = await aiService.summarizeThoughts(thoughtTexts);
+        const summary = stripMarkdown(rawSummary);
 
-      // Format date in Hong Kong timezone
-      const hkDate = new Date().toLocaleDateString('en-US', { 
-        timeZone: 'Asia/Hong_Kong',
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
-      });
+        // Format date in Hong Kong timezone
+        const hkDate = new Date().toLocaleDateString('en-US', { 
+          timeZone: 'Asia/Hong_Kong',
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric'
+        });
 
-      // Send to target chat
-      await larkMessaging.sendMessage(
-        this.targetChatId,
-        `🌅 Daily Summary - ${hkDate}
+        summaryText = `🌅 Daily Summary - ${hkDate}
 
 📊 Analyzed ${thoughts.length} thought(s) since yesterday
 
@@ -194,18 +245,29 @@ ${summary}
 ---
 
 💡 Auto-generated at 8:00 AM HKT (Hong Kong Time)
-🔧 Use /autosummary off to disable`
-      );
+🔧 Use /autosummary off to disable`;
+      } else {
+        summaryText = '💭 Daily Summary (8:00 AM HKT)\n\nNo thoughts recorded since yesterday.';
+      }
 
-      console.log(`✅ Auto-summary sent to chat ${this.targetChatId}`);
+      // Send summary to all enabled chats
+      for (const chatId of enabledChatIds) {
+        try {
+          await larkMessaging.sendMessage(chatId, summaryText);
+          console.log(`✅ Auto-summary sent to chat ${chatId}`);
+        } catch (error) {
+          console.error(`❌ Failed to send auto-summary to chat ${chatId}:`, error);
+        }
+      }
     } catch (error) {
       console.error('❌ Auto-summary task failed:', error);
       
-      // Try to notify about the error
-      if (this.targetChatId) {
+      // Try to notify all enabled chats about the error
+      const enabledChatIds = this.getEnabledChatIds();
+      for (const chatId of enabledChatIds) {
         try {
           await larkMessaging.sendMessage(
-            this.targetChatId,
+            chatId,
             `❌ Daily auto-summary failed: ${error.message}`
           );
         } catch (notifyError) {
@@ -216,12 +278,15 @@ ${summary}
   }
 
   /**
-   * Get current status
+   * Get current status for a specific chat
+   * @param {string} chatId - Chat ID to get status for
    */
-  getStatus() {
+  getStatus(chatId) {
+    const settings = this.chatSettings.get(chatId);
     return {
-      enabled: this.autoSummaryEnabled,
-      chatId: this.targetChatId,
+      enabled: settings ? settings.enabled : false,
+      chatId: chatId,
+      enabledAt: settings ? settings.enabledAt : null,
     };
   }
 }
